@@ -17,7 +17,10 @@
   */
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
-#include "main.h"
+#include <stdio.h>
+#include "port.h"
+#include "nrf24.h"
+#include "link_SR.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
@@ -31,6 +34,8 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
+#define NODE_SENDER 1	//1 = sender board, 0 = receiver board
+
 
 /* USER CODE END PD */
 
@@ -46,6 +51,13 @@ UART_HandleTypeDef huart2;
 
 /* USER CODE BEGIN PV */
 
+static const nrf24_cfg_t radio_cfg = {
+		.channel = 76,		//2.476 GHz (above wifi)
+		.rf_setup = 0x24,	//250 kbps, - 6 dBm
+		.addr = {0xE7, 0xE7, 0xE7, 0xE7, 0xE7}
+};
+
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -59,6 +71,24 @@ static void MX_USART2_UART_Init(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+
+static void print_stats(void){
+	const link_stats_t *s = link_stats();
+	char buf[200];
+	snprintf(buf, sizeof(buf), "frames %lu confirmed %lu bursts %lu polls %lu ack_to %lu "
+            "rx_ok %lu dup %lu acks %lu crc %lu radio_err %lu\r\n",
+			(unsigned long)s->frames_sent, (unsigned long)s->tx_ok,
+			(unsigned long)s->bursts, (unsigned long)s->polls_sent,
+			(unsigned long)s->ack_timeouts, (unsigned long)s->rx_ok,
+			(unsigned long)s->rx_dup, (unsigned long)s->acks_sent,
+			(unsigned long)s->crc_fail, (unsigned long)s->radio_err);
+
+	port_log(buf);
+}
+
+
+
+
 
 
 /* USER CODE END 0 */
@@ -96,6 +126,29 @@ int main(void)
   MX_USART2_UART_Init();
   /* USER CODE BEGIN 2 */
 
+  port_init();
+  port_log(NODE_SENDER ? "\r\n[sender]\r\n" : "\r\n[receiver]\r\n");
+
+  if (nrf24_init(&radio_cfg) != NRF_OK){
+	  //Register readback didnt match
+	  //Hardware issue
+	  port_log("nrf24 config readback FAILED\r\n");
+	  while(1){
+          HAL_GPIO_TogglePin(LD2_GPIO_Port, LD2_Pin);   //fast blink = error
+          HAL_Delay(100);
+	  }
+
+
+  }
+
+  port_log("nrf24 config OK\r\n");
+  link_init();
+
+
+
+
+
+
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -105,6 +158,47 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
+#if NODE_SENDER
+	  static uint32_t n = 0, last = 0;
+	  if(HAL_GetTick() - last >= 100){ //(around 10 msgs)
+		  last = HAL_GetTick();
+		  char msg[LINK_MAX_DATA + 1];
+		  int len = snprintf(msg, sizeof(msg), "msg %lu", (unsigned long)n++);
+
+		  //link_send only queues
+		  //flush pushes it out
+		  if(link_send((const uint8_t *)msg, (uint8_t)len) != LINK_OK ||
+		  	  link_flush() != LINK_OK){
+			  port_log("send FAILED\r\n");
+		  }
+
+
+		  HAL_GPIO_TogglePin(LD2_GPIO_Port, LD2_Pin);	//Blink per sent message
+		  if (n % 50 == 0) print_stats();
+	  }
+
+#else
+	  uint8_t data[LINK_MAX_DATA + 1], len;
+	  if (link_poll_recv(data, &len)){
+		  data[len] = '\0';
+		  port_log((const char *)data);
+		  port_log("\r\n");
+		  HAL_GPIO_ToggePin(LD2_GPIO_Port, LD2_Pin);	//blink per received message
+		  if (link_stats()->rx_ok % 50 == 0) print_stats();
+	  }
+#endif
+
+
+
+
+
+
+
+
+
+
+
+
   }
   /* USER CODE END 3 */
 }

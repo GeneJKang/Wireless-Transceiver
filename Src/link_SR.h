@@ -73,7 +73,7 @@ typedef enum{
 
 typedef struct {
 	uint32_t tx_ok;	//frame acked
-	uint32_t tx_fail;	//frame abandoned after LINK_MAX_TRIES
+	uint32_t tx_fail;	//frame abandoned after certain number of txs
 	uint32_t ack_timeouts;
 	uint32_t crc_fail;	//frame dropped for bad CRC from either side
 	uint32_t rx_ok;	//new frames delivered to the output

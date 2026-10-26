@@ -2,7 +2,7 @@
 
 uint16_t crc16_ccitt(const uint8_t *data, size_t len){
 
-	uint16_crc = 0xFFFF;	//Initialization crc register to full of 1s
+	uint16_t crc = 0xFFFF;	//Initialization crc register to full of 1s
 
 	for(size_t i = 0; i < len; i++){
 

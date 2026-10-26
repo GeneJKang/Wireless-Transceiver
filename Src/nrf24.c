@@ -60,7 +60,7 @@ static void write_reg_n(uint8_t reg, const uint8_t *buf, uint8_t len){
 
 
 
-bool nrf24_verify_confg(const nrf24_cfg_t *cfg){
+bool nrf24_verify_config(const nrf24_cfg_t *cfg){
 	//Read everything after init. If this fails then something went wrong
 
 	uint8_t a[5];

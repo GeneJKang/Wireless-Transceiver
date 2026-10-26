@@ -315,7 +315,8 @@ static bool run_burst(void){
 		//0 means busrt is over
 		build_data(txf, LINK_DATA, list[i], (uint8_t)(n - 1 - i), len, payload);
 
-		//Only first frame needs turnaround wait (Only ACK needs turn around wait)
+		//Only first frame needs turnaround delay
+		//Receiver may still be switching back to RX after its ACK
 		if (i == 0) port_delay_us(LINK_TURNAROUND_US);
 		if (nrf24_send(txf,5) != NRF_OK) stats.radio_err++;
 		if(i == n - 1u) nrf24_listen();
