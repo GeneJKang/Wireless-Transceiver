@@ -1,0 +1,33 @@
+# ---- Build output (Makefile, sim, firmware) ----
+build/
+*.o
+*.d
+*.a
+*.elf
+*.bin
+*.hex
+*.map
+*.list
+*.lst
+*.su
+*.cyclo
+
+# ---- STM32CubeIDE ----
+# Build configurations CubeIDE creates
+Debug/
+Release/
+# Workspace metadata (lives next to the project if the workspace is the repo)
+.metadata/
+RemoteSystemsTempFiles/
+# Per-machine settings. Keep .project, .cproject, *.ioc and .mxproject:
+# those are what let someone else open and build the project.
+.settings/
+*.launch
+
+# ---- Editors / OS ----
+.vscode/
+.idea/
+*.swp
+*~
+.DS_Store
+Thumbs.db
