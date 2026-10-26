@@ -89,6 +89,7 @@ If an ACK frame is lost, the sender sends a short POLL frame and the receiver re
 | GND | GND |
 
 SPI2: Mode 0 at 5 MHz.
+
 Radio Channel: Channel 76 (2476 MHz), 250 kbps.
 
 ## Planned Features
@@ -97,4 +98,5 @@ Radio Channel: Channel 76 (2476 MHz), 250 kbps.
 + Forward error correction and interleaving
 + Frequency Hopping
 
-
+## Notes
+The ESB has a significant advantage in terms of performance due to being able to offload a significant amount of the framing process to hardware. Despite this, the SR protocol was able to beat ESB. In the future, if possible, I would like to adapt this protocol into the physical layer and significantly improve the performance.
