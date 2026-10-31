@@ -32,7 +32,7 @@
 
 This graph is here to give a clearer picture during extreme cases for messages lost. Generally, this is something that is unlikely to happen during normal use, but represents the difference between the two protocols.
 
-At the extremes, Selective Repeat also loses messages (loses 19 out of 60,000 messages) with 2-second jammer bursts, and 5.2% when the channel is jammed 95% of the time. Every one of those losses was reported to the sender. ESB loses 5.4% and 70% in the same conditions.
+At the extremes, Selective Repeat also loses messages (loses 19 out of 60,000 messages) with 2-second jammer bursts, and 5.2% when the channel is jammed 95% of the time. Every one of those losses was reported to the sender. ESB loses 5.4% and 70% in the same conditions and the sender did not report those losses.
 
 ## How it works
 | Layer | Details |
