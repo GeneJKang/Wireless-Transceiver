@@ -5,6 +5,7 @@
 #include <stdbool.h>
 
 #define NRF24_PAYLOAD 32u	//32 byte payload
+#define ADDR_LEN 3 //Address length
 
 //Commands (datasheet)
 
@@ -66,6 +67,14 @@
 #define STATUS_TX_DS_SHIFT (1u << 5)
 #define STATUS_RX_DR_SHIFT (1u << 6)
 #define FIFO_RX_EMPTY (1u << 0)
+#define FIFO_TX_EMPTY (1u << 4)
+#define FIFO_TX_FULL (1u << 5)
+
+//RF_SETUP data-rate bits (bit 5 = RF_DR_LOW and bit 3 = RF_DR_HIGH)
+#define RF_DR_MASK 0x28u
+#define NRF24_DR_250K 0x20u
+#define NRF24_DR_1M 0x00u
+#define NRF24_DR_2M 0x08u
 
 
 typedef enum { NRF_OK = 0, NRF_TIMEOUT, NRF_ERR } nrf_result_t;
@@ -73,7 +82,7 @@ typedef enum { NRF_OK = 0, NRF_TIMEOUT, NRF_ERR } nrf_result_t;
 typedef struct {
 	uint8_t channel;	//0 to 125 channels, 2400 mhz + ch mhz
 	uint8_t rf_setup;	//data rate + PA level
-	uint8_t addr[5];	//shared pipe 0 / TX address
+	uint8_t addr[ADDR_LEN];	//shared pipe 0 / TX address
 } nrf24_cfg_t;
 
 nrf_result_t nrf24_init(const nrf24_cfg_t *cfg);
@@ -81,11 +90,23 @@ nrf_result_t nrf24_init(const nrf24_cfg_t *cfg);
 //Load one frame, pulse CE, and wait for TX_DS. Leaves radio on Stanby
 nrf_result_t nrf24_send(const uint8_t frame[NRF24_PAYLOAD], uint32_t timeout_ms);
 
+//Streaming TX sends a whole burst back to back
+void nrf24_tx_init(void);
+nrf_result_t nrf24_tx_push(const uint8_t frame[NRF24_PAYLOAD], uint32_t timeout_ms);
+nrf_result_t nrf24_tx_finish(uint32_t timeout_ms);
+
+
 //Enter RX mode (CE high). Takes around 130 us before radio actuall hears
 void nrf24_listen(void);
 
 // Non blocking: if a frame is waiting, copy it out and return true
 bool nrf24_poll_rx(uint8_t frame[NRF24_PAYLOAD]);
+
+
+//Change the data rate (NRF24_DR_250K/1M/2M)
+//This leaves the radio in standby (CE low)
+//Returns false if the register didnt read back as written
+bool nrf24_set_rate(uint8_t rf_dr);
 
 //debug helpers
 uint8_t nrf24_read_reg(uint8_t reg);

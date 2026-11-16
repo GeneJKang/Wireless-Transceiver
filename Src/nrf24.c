@@ -4,6 +4,11 @@
 #include "port.h"
 #include <string.h>
 
+//Streaming TX state
+static uint8_t cur_dr = NRF24_DR_250K; //data-rate bits current set
+static bool tx_ce_on; //CE high
+static uint8_t tx_in_stretch; //frames pushed since last high CE
+
 
 //Low level helper functions
 
@@ -63,17 +68,17 @@ static void write_reg_n(uint8_t reg, const uint8_t *buf, uint8_t len){
 bool nrf24_verify_config(const nrf24_cfg_t *cfg){
 	//Read everything after init. If this fails then something went wrong
 
-	uint8_t a[5];
+	uint8_t a[ADDR_LEN];
 	bool ok = true;
 
 	ok = ok & (nrf24_read_reg(EN_AA_REG) == 0x00);
-	ok = ok & (nrf24_read_reg(SETUP_AW_REG) == 0x03);
+	ok = ok & (nrf24_read_reg(SETUP_AW_REG) == 0x01);
 	ok = ok & (nrf24_read_reg(RF_CH_REG) == cfg->channel);
 	ok = ok & (nrf24_read_reg(RF_SETUP_REG) == cfg->rf_setup);
 	ok = ok & (nrf24_read_reg(RX_PW_P0_REG) == NRF24_PAYLOAD);
 
-	nrf_cmd(CMD_R_REG | TX_ADDR_REG, NULL, a, 5);
-	ok = ok & (memcmp(a, cfg->addr, 5) == 0);
+	nrf_cmd(CMD_R_REG | TX_ADDR_REG, NULL, a, ADDR_LEN);
+	ok = ok & (memcmp(a, cfg->addr, ADDR_LEN) == 0);
 
 	return ok;
 }
@@ -106,14 +111,16 @@ nrf_result_t nrf24_init(const nrf24_cfg_t *cfg){	//cfg is pointer to struct
 	write_reg(EN_AA_REG, 0x00);	//No auto ACK on any pipe
 	write_reg(SETUP_RETR_REG, 0x00); //no auto retransmit
 	write_reg(EN_RXADDR_REG, 0x01);	//Only pipe 0 RX enable
-	write_reg(SETUP_AW_REG, 0x03);	//5 byte address width
+	write_reg(SETUP_AW_REG, 0x01);	//3 byte address width
 	write_reg(RF_CH_REG, cfg->channel);	//RF channel / RF setup registers
 	write_reg(RF_SETUP_REG, cfg->rf_setup);	//channel and rf_setup are fields inside cfg struct
 	write_reg(RX_PW_P0_REG, NRF24_PAYLOAD);	//set number of bytes in RX payload in data pipe 0 to 32 bytes
 	write_reg(DYNPD_REG, 0x00); //disable dynamic payload for all pipes
 	write_reg(FEATURE_REG, 0x00); //Disable all features
-	write_reg_n(RX_ADDR_P0_REG, cfg->addr, 5);	//write into addr for RX data up to 5 bytes
-	write_reg_n(TX_ADDR_REG, cfg->addr, 5);	//^^ TX addr instead of RX
+	write_reg_n(RX_ADDR_P0_REG, cfg->addr, ADDR_LEN);	//write into addr for RX data up to 3 bytes
+	write_reg_n(TX_ADDR_REG, cfg->addr, ADDR_LEN);	//^^ TX addr instead of RX
+
+	cur_dr = (uint8_t)(cfg->rf_setup & RF_DR_MASK); //store rate for streaming
 
 	nrf_cmd(CMD_FLUSH_TX, NULL, NULL, 0);	//Flush TX/RX after init
 	nrf_cmd(CMD_FLUSH_RX, NULL, NULL, 0);
@@ -133,7 +140,79 @@ nrf_result_t nrf24_init(const nrf24_cfg_t *cfg){	//cfg is pointer to struct
 
 
 
+
+
 //TX
+
+//How many frames fit in one high CE transmission without going over 4 ms transmission time
+static uint8_t frames_per_stretch(void){
+	switch (cur_dr){
+		case NRF24_DR_2M:
+			return 24;
+		case NRF24_DR_1M:
+			return 12;
+		default:
+			return 3;
+	}
+}
+
+//Wait until every queued frame has been transmitted
+//empty FIFO means the burst is done
+static nrf_result_t wait_tx_empty(uint32_t timeout_ms){
+	uint32_t t0 = port_millis();
+	while(!(nrf24_read_reg(FIFO_STATUS_REG) & FIFO_TX_EMPTY)){
+		if ((uint32_t)(port_millis() - t0) >= timeout_ms) return NRF_TIMEOUT;
+	}
+	return NRF_OK;
+}
+
+
+//Initialize TX stream
+void nrf24_tx_init(void){
+	port_ce(false);
+	tx_ce_on = false;
+	tx_in_stretch = 0;
+	write_reg(CONFIG_REG, CONFIG_PWR_SHIFT); //PRIM_RX = 0 (TX)
+	nrf_cmd(CMD_FLUSH_TX, NULL, NULL, 0);
+	clear_flags(STATUS_TX_DS_SHIFT | STATUS_MAX_RT_SHIFT);
+}
+
+//Queue one frame (TX FIFO holds 3)
+nrf_result_t nrf24_tx_push(const uint8_t frame[NRF24_PAYLOAD], uint32_t timeout_ms){
+	if (tx_in_stretch >= frames_per_stretch()){
+		if (wait_tx_empty(timeout_ms) != NRF_OK) return NRF_TIMEOUT;
+		port_ce(false);
+		tx_ce_on = false;
+		tx_in_stretch = 0;
+	}
+
+	uint32_t t0 = port_millis();
+
+	while (nrf24_read_reg(FIFO_STATUS_REG) & FIFO_TX_FULL){
+		if ((uint32_t)(port_millis() - t0) >= timeout_ms) return NRF_TIMEOUT;
+	}
+
+	nrf_cmd(CMD_W_TX_PL, frame, NULL, NRF24_PAYLOAD);
+	tx_in_stretch++;
+	if (!tx_ce_on){	//first frame of the current transmission (4 ms window)
+		port_ce(true);
+		tx_ce_on = true;
+	}
+	return NRF_OK;
+}
+
+//Waits for last frame to be transmitted and then drop CE (4 ms) and go on standby
+//Call nrf24_listen() afterwards to receive ACK
+nrf_result_t nrf24_tx_finish(uint32_t timeout_ms){
+	nrf_result_t r = wait_tx_empty(timeout_ms);
+	port_ce(false);
+	tx_ce_on = false;
+	tx_in_stretch = 0;
+	clear_flags(STATUS_TX_DS_SHIFT | STATUS_MAX_RT_SHIFT);
+	if (r != NRF_OK) nrf_cmd(CMD_FLUSH_TX, NULL, NULL, 0);	//flush old frames in queue
+	return r;
+}
+
 nrf_result_t nrf24_send(const uint8_t frame[NRF24_PAYLOAD], uint32_t timeout_ms){
 
 	port_ce(false);	//Standby
@@ -164,6 +243,20 @@ nrf_result_t nrf24_send(const uint8_t frame[NRF24_PAYLOAD], uint32_t timeout_ms)
 		}
 	}
 }
+
+//Change only the data rate
+//This only swaps the two data rate bits and writes it back
+//Set radio to standby first (CE low) and then set back to high after
+bool nrf24_set_rate(uint8_t rf_dr){
+	port_ce(false);
+	uint8_t v = nrf24_read_reg(RF_SETUP_REG);
+	v = (uint8_t)((v & (uint8_t)~RF_DR_MASK) | (rf_dr & RF_DR_MASK));
+	cur_dr = (uint8_t)(rf_dr & RF_DR_MASK);
+	write_reg(RF_SETUP_REG, v);
+	return nrf24_read_reg(RF_SETUP_REG) == v;	//confirm the write is the same as register values
+}
+
+
 
 //RX
 void nrf24_listen(void){

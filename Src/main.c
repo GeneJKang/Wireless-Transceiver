@@ -17,14 +17,16 @@
   */
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
+#include "main.h"
+
+
+/* Private includes ----------------------------------------------------------*/
+/* USER CODE BEGIN Includes */
 #include <stdio.h>
 #include "port.h"
 #include "nrf24.h"
 #include "link_SR.h"
-
-/* Private includes ----------------------------------------------------------*/
-/* USER CODE BEGIN Includes */
-
+#include "huff.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -54,7 +56,7 @@ UART_HandleTypeDef huart2;
 static const nrf24_cfg_t radio_cfg = {
 		.channel = 76,		//2.476 GHz (above wifi)
 		.rf_setup = 0x24,	//250 kbps, - 6 dBm
-		.addr = {0xE7, 0xE7, 0xE7, 0xE7, 0xE7}
+		.addr = {0xC5, 0x3A, 0x6D}
 };
 
 
@@ -143,10 +145,10 @@ int main(void)
 
   port_log("nrf24 config OK\r\n");
   link_init();
-
-
-
-
+  huff_init();
+#if NODE_SENDER
+  link_set_auto(true);	//auto choose modes
+#endif
 
 
   /* USER CODE END 2 */
@@ -167,7 +169,7 @@ int main(void)
 
 		  //link_send only queues
 		  //flush pushes it out
-		  if(link_send((const uint8_t *)msg, (uint8_t)len) != LINK_OK ||
+		  if(huff_send(msg, (uint8_t)len) != LINK_OK ||
 		  	  link_flush() != LINK_OK){
 			  port_log("send FAILED\r\n");
 		  }
@@ -179,11 +181,11 @@ int main(void)
 
 #else
 	  uint8_t data[LINK_MAX_DATA + 1], len;
-	  if (link_poll_recv(data, &len)){
+	  if (huff_poll_recv((char *)data, &len)){
 		  data[len] = '\0';
-		  port_log((const char *)data);
+		  port_log((const char *)data);	//This may start to fail when sending faster or switching to 2 Mbps and frames will start overflowing
 		  port_log("\r\n");
-		  HAL_GPIO_ToggePin(LD2_GPIO_Port, LD2_Pin);	//blink per received message
+		  HAL_GPIO_TogglePin(LD2_GPIO_Port, LD2_Pin);	//blink per received message
 		  if (link_stats()->rx_ok % 50 == 0) print_stats();
 	  }
 #endif
